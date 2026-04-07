@@ -18,6 +18,28 @@ Python, FastAPI, Streamlit, Docker, ChromaDB, sentence-transformers, Mistral API
 
 ---
 
+## Design choices
+- No report-specific parsers: one universal LLM prompt handles all formats
+- RAG injects domain standards (Cotton Inc, 4-point system) so Mistral understands defect severity without fine-tuning
+- Business rules drive the verdict — not the model alone
+- 4 Python files, no frameworks beyond FastAPI and Streamlit
+
+---
+
+## Trade-offs
+- LLM parsing is flexible but non-deterministic — same report may return slightly different defect names across runs
+- Mistral free tier has rate limits — a paid tier or local model would remove this constraint
+- Scanned PDFs are not supported — OCR would be needed for image-only documents
+
+---
+
+## What's next
+- Store results in PostgreSQL for supplier performance tracking over time
+- Add email alerts when a supplier's fail rate exceeds a threshold
+- Support scanned PDFs via OCR (Tesseract or AWS Textract)
+
+---
+
 ## How to run
 
 1. Add reference PDFs to `data/rag_documents/`
