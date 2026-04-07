@@ -1,19 +1,19 @@
 import sys
-sys.path.append(".")
+sys.path.append("/app/src")
 
-from fastapi import FastAPI, UploadFile, File
-import joblib
-import pandas as pd
-import tempfile
 import os
+import tempfile
+from fastapi import FastAPI, UploadFile, File
+from contextlib import asynccontextmanager
+from rag import ingest_documents, get_context
+from analyze import analyze_report
 
-from src.extractor import extract_from_pdf
-from src.features import build_features
+@asynccontextmanager
+async def lifespan(app):
+    ingest_documents()
+    yield
 
-app = FastAPI(title="QIMA Inspection Anomaly API")
-
-model  = joblib.load("models/isolation_forest.pkl")
-scaler = joblib.load("models/scaler.pkl")
+app = FastAPI(title="Inspection Report Analyzer", lifespan=lifespan)
 
 @app.get("/health")
 def health():
@@ -24,45 +24,26 @@ async def analyze(file: UploadFile = File(...)):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
-
     try:
-        df, metadata = extract_from_pdf(tmp_path)
-
-        if df.empty:
-            return {
-                "metadata": metadata,
-                "total_inspected": 0,
-                "anomalies_detected": 0,
-                "results": []
-            }
-
-        X = build_features(df)
-        X_scaled = scaler.transform(X)
-
-        # Risk score continu pour le ranking
-        df["risk_score"] = [-round(float(s), 3) for s in model.decision_function(X_scaled)]
-
-        # Règle métier ASTM D5430 — seuil de 20 pts
-        df["anomaly"] = (
-            (pd.to_numeric(df["total_penalty_points"], errors="coerce").fillna(0) > 20) |
-            (pd.to_numeric(df["points_per_100sqyd"],   errors="coerce").fillna(0) > 20)
-        )
-        df["alert"] = df["anomaly"].apply(lambda x: "HIGH RISK" if x else "NORMAL")
-
-        # Final conclusion toujours déduite depuis les données
-        metadata["final_conclusion"] = (
-            "NOT CONFORM" if df["anomaly"].any() else "CONFORM"
-        )
-
-        # Remplace NaN/Inf par None pour JSON
-        df = df.replace({float("nan"): None, float("inf"): None, float("-inf"): None})
-
-        return {
-            "metadata": metadata,
-            "total_inspected": len(df),
-            "anomalies_detected": int(df["anomaly"].sum()),
-            "results": df.to_dict(orient="records")
-        }
-
+        return analyze_report(tmp_path)
     finally:
         os.unlink(tmp_path)
+
+@app.get("/rag/stats")
+def rag_stats():
+    try:
+        import chromadb
+        from chromadb.config import Settings
+        client = chromadb.PersistentClient(
+            path="/app/chroma_db",
+            settings=Settings(anonymized_telemetry=False)
+        )
+        col = client.get_collection("inspection_standards")
+        sample = col.peek(3)
+        return {
+            "status": "ok",
+            "total_chunks": col.count(),
+            "sources": list(set(m["source"] for m in sample["metadatas"]))
+        }
+    except Exception as e:
+        return {"status": "unavailable", "error": str(e)}

@@ -1,171 +1,53 @@
 # Inspection Anomaly Detector
 
-An end-to-end AI pipeline that analyzes quality inspection PDF reports, extracts structured data using a LLM, and flags anomalies using business rules and machine learning.
-
-Built as a side project to demonstrate AI/ML engineering skills in the context of quality control and supply chain inspection.
-
----
-
-## Demo
-
-**Fabric inspection report (TESTCOO format)**
-- 26 rolls extracted from a 28-page PDF
-- PEACOCK #14 flagged HIGH RISK (53 penalty points)
-- GREEN #54 flagged HIGH RISK (21.6 pts/100 sq.yd)
-- Final conclusion: NOT CONFORM
-
-**Generic inspection report**
-- Product extracted from unstructured text
-- Inspection score converted to penalty points
-- Final conclusion: NOT CONFORM
-
----
-
-## Architecture
-
-```
-PDF Upload
-    │
-    ▼
-pdfplumber (text extraction)
-    │
-    ├── Structured tables found? ──► Direct DataFrame
-    │
-    └── No structure detected?  ──► Mistral API (LLM extraction)
-                                        │
-                                        ├── fabric prompt (roll-by-roll)
-                                        └── generic prompt (score-based)
-    │
-    ▼
-Feature Engineering (penalty ratio, severity score, length delta)
-    │
-    ▼
-Isolation Forest (continuous risk score for ranking)
-    │
-    ▼
-Business Rule — ASTM D5430 (pts > 20 = HIGH RISK)
-    │
-    ▼
-FastAPI + Streamlit Dashboard
-```
-
----
-
-## Key Design Decisions
-
-**LLM for extraction, rules for decisions**
-The LLM (Mistral) handles unstructured document understanding. The final HIGH RISK / NORMAL decision always follows the ASTM D5430 business rule (penalty points > 20). This ensures auditability and consistency — critical in a quality control context.
-
-**Prompt-per-format architecture**
-The pipeline detects the report type (fabric inspection vs generic quality report) and applies the appropriate extraction prompt. Adding a new format takes ~20 minutes. The natural V2 would be a trained format classifier on a historical report catalog.
-
-**Isolation Forest for ranking**
-Beyond the binary HIGH RISK / NORMAL decision, the ML model provides a continuous risk score to prioritize rolls within a report. This is where ML adds value over pure rules — ranking and trend detection across multiple reports over time.
+Uploads any quality inspection PDF (QIMA, Bureau Veritas, fabric reports), retrieves relevant context from a local knowledge base of standards using RAG, and calls Mistral to return a structured PASS/FAIL verdict with detected defects and a plain-language summary.
 
 ---
 
 ## Stack
 
-| Layer | Technology |
-|---|---|
-| PDF extraction | pdfplumber |
-| LLM extraction | Mistral API (mistral-small-latest) |
-| Anomaly detection | scikit-learn Isolation Forest |
-| API | FastAPI |
-| Dashboard | Streamlit + Plotly |
-| Containerization | Docker + Docker Compose |
+Python, FastAPI, Streamlit, Docker, ChromaDB, sentence-transformers, Mistral API
 
 ---
 
-## Project Structure
+## How it works
+
+1. Upload any inspection PDF (QIMA, Bureau Veritas, fabric reports...)
+2. RAG retrieves relevant context from quality standards stored in ChromaDB
+3. Mistral analyzes the report and returns PASS/FAIL + defects + summary
+
+---
+
+## How to run
+
+1. Add reference PDFs to `data/rag_documents/`
+2. Add your key to `.env`: `MISTRAL_API_KEY=your_key`
+3. `docker-compose up --build`
+
+Dashboard at `http://localhost:8501` — API docs at `http://localhost:8000/docs`
+
+---
+
+## Test the project
+
+Sample reports are available in `data/` — upload any PDF to the dashboard.
+Reference documents for RAG are in `data/rag_documents/`.
+Just run `docker-compose up --build` — everything is included.
+
+---
+
+## Project structure
 
 ```
-inspection-anomaly-detector/
-├── data/
-│   └── fabricinspectionsamplereport.pdf
-├── models/
-│   └── .gitkeep
-├── src/
-│   ├── extractor.py    # PDF extraction + Mistral fallback
-│   ├── features.py     # Feature engineering
-│   └── train.py        # Isolation Forest training
-├── api/
-│   └── main.py         # FastAPI endpoint
-├── dashboard/
-│   └── app.py          # Streamlit dashboard
-├── Dockerfile
-├── start.sh
-├── docker-compose.yml
-├── requirements.txt
-└── .env.example
+src/analyze.py        # PDF extraction + RAG + Mistral analysis
+src/rag.py            # ChromaDB ingestion and retrieval
+api/main.py           # FastAPI endpoint
+dashboard/app.py      # Streamlit dashboard
 ```
 
 ---
 
-## Getting Started
+## Known limitations
 
-**Prerequisites**
-- Docker Desktop
-- Mistral API key (free tier at console.mistral.ai)
-
-**Setup**
-
-1. Clone the repo
-```bash
-git clone https://github.com/yourusername/inspection-anomaly-detector
-cd inspection-anomaly-detector
-```
-
-2. Create your `.env` file
-```bash
-cp .env.example .env
-# Add your Mistral API key
-```
-
-3. Train the model
-```bash
-python src/train.py
-```
-
-4. Build and run
-```bash
-docker-compose up --build
-```
-
-5. Open the dashboard
-```
-http://localhost:8501
-```
-
-API docs available at `http://localhost:8000/docs`
-
----
-
-## Supported Report Formats
-
-| Format | Detection | Extraction |
-|---|---|---|
-| Fabric inspection (4-point system) | Keyword detection | Mistral page-by-page |
-| Generic quality report (score-based) | Keyword detection | Mistral full-text |
-| Scanned PDFs | — | Not supported (OCR roadmap) |
-
----
-
-## Roadmap
-
-- Format classifier trained on historical reports (replace keyword detection)
-- OCR support for scanned PDFs (Tesseract)
-- Multi-report trend analysis (supplier risk scoring over time)
-- Unit tests and CI/CD pipeline
-
----
-
-## Why This Architecture
-
-This project was built with a production mindset:
-
-- **LLM handles ambiguity** — document understanding, format variations, unstructured text
-- **Rules handle decisions** — auditable, explainable, legally defensible
-- **ML handles ranking** — continuous scoring for prioritization, extensible to trend detection
-
-This separation is the standard approach for AI-assisted quality control systems where explainability and compliance matter.
+- Scanned PDFs (image-only) are not supported — text extraction requires a selectable text layer
+- Mistral free tier has rate limits; if you hit a 429, wait ~1 minute and retry
