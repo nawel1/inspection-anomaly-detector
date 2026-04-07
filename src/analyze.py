@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import tempfile
 import pdfplumber
 from mistralai import Mistral
 from rag import get_context
@@ -27,17 +26,22 @@ Reference context from industry standards:
 Report text:
 {text[:4000]}
 
+severity must be exactly one of: Critical, Major, or Minor.
+Keep max 5 defects. Empty list if PASS.
+
+Important: if the report contains an explicit overall verdict
+(PASS, FAIL, CONFORM, NOT CONFORM, PASSED, FAILED), use that
+as your overall_result. Do not override it with your own interpretation.
+
 Return ONLY valid JSON with these exact keys:
 {{
   "overall_result": "PASS" or "FAIL",
   "confidence": "high", "medium", or "low",
   "main_defects": [
-    severity must be exactly one of: "Critical", "Major", or "Minor"
     {{"name": "Big oil stain", "severity": "Major"}}
   ],
   "summary": "one sentence explaining the result"
-}}
-Keep max 5 defects. Empty list if PASS."""
+}}"""
 
     client = Mistral(api_key=MISTRAL_API_KEY)
     try:

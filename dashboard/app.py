@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import pandas as pd
 
 st.set_page_config(page_title="Inspection Report Analyzer", layout="centered")
 st.title("Inspection Report Analyzer")
@@ -8,9 +9,9 @@ API_URL = "http://api:8000"
 
 try:
     requests.get(f"{API_URL}/health", timeout=2)
-    st.success("API connected")
 except:
     st.error("API not reachable")
+    st.stop()
 
 uploaded = st.file_uploader("Upload an inspection report (PDF)", type=["pdf"])
 
@@ -42,14 +43,13 @@ if uploaded:
         defects = data.get("main_defects", [])
         if defects and data.get("overall_result") != "PASS":
             st.subheader("Main defects")
-            import pandas as pd
             df = pd.DataFrame(defects)
             if "severity" in df.columns:
                 def color_severity(val):
                     colors = {"Critical": "red", "Major": "orange", "Minor": "gold"}
                     return f"color: {colors.get(val, 'white')}"
                 st.dataframe(
-                    df.style.applymap(color_severity, subset=["severity"]),
+                    df.style.map(color_severity, subset=["severity"]),
                     use_container_width=True,
                     hide_index=True
                 )

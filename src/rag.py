@@ -1,10 +1,17 @@
+import os
 from pathlib import Path
+import chromadb
+from chromadb.config import Settings
 import pdfplumber
+from sentence_transformers import SentenceTransformer
+
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 CHROMA_DIR = Path(__file__).parent.parent / "chroma_db"
 DOCS_DIR   = Path(__file__).parent.parent / "data" / "rag_documents"
 COLLECTION = "inspection_standards"
 EMBED_MODEL = "all-MiniLM-L6-v2"
+_model = SentenceTransformer(EMBED_MODEL)
 
 def _chunk(text, size=500, overlap=50):
     chunks, start = [], 0
@@ -14,10 +21,6 @@ def _chunk(text, size=500, overlap=50):
     return [c.strip() for c in chunks if c.strip()]
 
 def _col():
-    import os
-    os.environ["ANONYMIZED_TELEMETRY"] = "False"
-    import chromadb
-    from chromadb.config import Settings
     client = chromadb.PersistentClient(
         path=str(CHROMA_DIR),
         settings=Settings(anonymized_telemetry=False, allow_reset=True),
@@ -25,8 +28,7 @@ def _col():
     return client.get_or_create_collection(COLLECTION, metadata={"hnsw:space": "cosine"})
 
 def _embed(texts):
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(EMBED_MODEL).encode(texts, batch_size=64).tolist()
+    return _model.encode(texts, batch_size=64).tolist()
 
 def ingest_documents(docs_dir=None):
     docs_dir = Path(docs_dir) if docs_dir else DOCS_DIR
@@ -71,3 +73,14 @@ def get_context(query):
     except Exception as e:
         print(f"[RAG] get_context failed: {e}")
         return ""
+
+def get_stats() -> dict:
+    try:
+        col = _col()
+        sample = col.peek(3)
+        return {
+            "total_chunks": col.count(),
+            "sources": list(set(m["source"] for m in sample["metadatas"]))
+        }
+    except Exception as e:
+        return {"error": str(e)}

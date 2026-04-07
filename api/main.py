@@ -5,7 +5,7 @@ import os
 import tempfile
 from fastapi import FastAPI, UploadFile, File
 from contextlib import asynccontextmanager
-from rag import ingest_documents, get_context
+from rag import ingest_documents, get_stats
 from analyze import analyze_report
 
 @asynccontextmanager
@@ -31,19 +31,7 @@ async def analyze(file: UploadFile = File(...)):
 
 @app.get("/rag/stats")
 def rag_stats():
-    try:
-        import chromadb
-        from chromadb.config import Settings
-        client = chromadb.PersistentClient(
-            path="/app/chroma_db",
-            settings=Settings(anonymized_telemetry=False)
-        )
-        col = client.get_collection("inspection_standards")
-        sample = col.peek(3)
-        return {
-            "status": "ok",
-            "total_chunks": col.count(),
-            "sources": list(set(m["source"] for m in sample["metadatas"]))
-        }
-    except Exception as e:
-        return {"status": "unavailable", "error": str(e)}
+    stats = get_stats()
+    if "error" in stats:
+        return {"status": "unavailable", "error": stats["error"]}
+    return {"status": "ok", **stats}

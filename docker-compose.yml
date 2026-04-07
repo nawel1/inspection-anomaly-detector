@@ -6,7 +6,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./models:/app/models
+      - ./chroma_db:/app/chroma_db
+      - ./data:/app/data
     env_file:
       - .env
     healthcheck:
